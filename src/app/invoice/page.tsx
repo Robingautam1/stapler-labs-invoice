@@ -474,6 +474,8 @@ export default function InvoicePage() {
     <div className="min-h-screen bg-[#0A0A0A] text-white flex flex-col">
 
       {/* ── Hidden capture target (off-screen, no transform) ── */}
+      {/* NOTE: must NOT use visibility:hidden — html2canvas skips hidden elements and produces blank output */}
+      {/* opacity:0 keeps it invisible to users while still being fully rendered/painted for capture */}
       <div
         style={{
           position: "fixed",
@@ -481,7 +483,7 @@ export default function InvoicePage() {
           top: "0",
           zIndex: -1,
           pointerEvents: "none",
-          visibility: "hidden",
+          opacity: 0,
         }}
       >
         <InvoiceDoc f={f} innerRef={captureRef} />
