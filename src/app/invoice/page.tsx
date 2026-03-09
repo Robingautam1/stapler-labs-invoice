@@ -88,15 +88,44 @@ const defaults: FormData = {
 };
 
 /* ─────────────────────────────────────────────
-   STAPLER LABS LOGO (inline SVG)
+   STAPLER LABS LOGO (inline SVG — matches official logo kit)
 ───────────────────────────────────────────── */
 function SlLogo({ size = 32 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 32 32" fill="none">
-      <rect width="32" height="32" rx="7" fill="#F5C842" />
-      <rect x="7" y="14" width="18" height="4" rx="1.5" fill="#0A0A0A" />
-      <rect x="7" y="8" width="12" height="4" rx="1.5" fill="#0A0A0A" />
-      <rect x="7" y="20" width="15" height="4" rx="1.5" fill="#0A0A0A" />
+    <svg width={size} height={size} viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+      {/* Background */}
+      <rect width="200" height="200" fill="#F0F0F0" rx="40"/>
+      {/* Corner accent */}
+      <circle cx="28" cy="28" r="4" fill="#D4A800" opacity="0.4"/>
+      {/* BASE PLATE */}
+      <rect x="22" y="134" width="156" height="30" rx="9" fill="#333333"/>
+      <rect x="22" y="134" width="156" height="4" rx="9" fill="#444444" opacity="0.9"/>
+      <rect x="28" y="158" width="18" height="5" rx="2.5" fill="#555555"/>
+      <rect x="154" y="158" width="18" height="5" rx="2.5" fill="#555555"/>
+      <rect x="30" y="140" width="116" height="3.5" rx="1.75" fill="#444444"/>
+      <rect x="32" y="145" width="4" height="1.5" rx="0.75" fill="#4A4A4A"/>
+      <rect x="40" y="145" width="4" height="1.5" rx="0.75" fill="#4A4A4A"/>
+      <rect x="48" y="145" width="4" height="1.5" rx="0.75" fill="#4A4A4A"/>
+      {/* ARM */}
+      <path d="M 22 134 L 22 88 Q 22 72 38 68 L 140 62 Q 160 60 168 76 L 174 96 L 174 134 Z" fill="#555555"/>
+      <path d="M 22 88 Q 22 72 38 68 L 140 62 Q 160 60 168 76 L 168 90 L 22 90 Z" fill="#444444"/>
+      <path d="M 30 88 Q 30 76 44 73 L 138 67 Q 155 65 163 77" fill="none" stroke="#666666" strokeWidth="1.5" strokeLinecap="round" opacity="0.5"/>
+      {/* HINGE */}
+      <circle cx="170" cy="112" r="20" fill="#F0F0F0"/>
+      <circle cx="170" cy="112" r="20" fill="none" stroke="#C8A800" strokeWidth="4.5"/>
+      <circle cx="170" cy="112" r="9.5" fill="#D4A800"/>
+      <circle cx="170" cy="112" r="5" fill="#D4A800"/>
+      <circle cx="170" cy="112" r="3.5" fill="#F0F0F0"/>
+      {/* MOUTH */}
+      <rect x="22" y="118" width="146" height="16" fill="#F0F0F0"/>
+      <rect x="24" y="120" width="142" height="4" fill="#E8E8E8"/>
+      {/* STAPLE */}
+      <rect x="32" y="110" width="52" height="10" rx="5" fill="#D4A800"/>
+      <rect x="32" y="110" width="10" height="32" rx="5" fill="#D4A800"/>
+      <rect x="74" y="110" width="10" height="32" rx="5" fill="#D4A800"/>
+      <rect x="34" y="112" width="48" height="2" rx="1" fill="#E8C000" opacity="0.5"/>
+      {/* Paper lines */}
+      <rect x="14" y="164" width="172" height="3.5" rx="1.75" fill="#D4A800" opacity="0.08"/>
     </svg>
   );
 }
@@ -136,14 +165,28 @@ function InvoiceDoc({ f, innerRef }: { f: FormData; innerRef?: React.RefObject<H
       {/* ── Header ── */}
       <div style={{ padding: "36px 48px 24px", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          {/* Logo mark */}
-          <div style={{ width: "42px", height: "42px", background: "#F5C842", borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <svg width="26" height="20" viewBox="0 0 26 20" fill="none">
-              <rect y="8" width="26" height="4" rx="2" fill="#0A0A0A" />
-              <rect y="0" width="18" height="4" rx="2" fill="#0A0A0A" />
-              <rect y="16" width="21" height="4" rx="2" fill="#0A0A0A" />
-            </svg>
-          </div>
+          {/* Logo mark — official StaplerLabs stapler icon */}
+          <svg width="42" height="42" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+            <rect width="200" height="200" fill="#F0F0F0" rx="40"/>
+            <circle cx="28" cy="28" r="4" fill="#D4A800" opacity="0.4"/>
+            <rect x="22" y="134" width="156" height="30" rx="9" fill="#333333"/>
+            <rect x="22" y="134" width="156" height="4" rx="9" fill="#444444" opacity="0.9"/>
+            <rect x="28" y="158" width="18" height="5" rx="2.5" fill="#555555"/>
+            <rect x="154" y="158" width="18" height="5" rx="2.5" fill="#555555"/>
+            <rect x="30" y="140" width="116" height="3.5" rx="1.75" fill="#444444"/>
+            <path d="M 22 134 L 22 88 Q 22 72 38 68 L 140 62 Q 160 60 168 76 L 174 96 L 174 134 Z" fill="#555555"/>
+            <path d="M 22 88 Q 22 72 38 68 L 140 62 Q 160 60 168 76 L 168 90 L 22 90 Z" fill="#444444"/>
+            <circle cx="170" cy="112" r="20" fill="#F0F0F0"/>
+            <circle cx="170" cy="112" r="20" fill="none" stroke="#C8A800" strokeWidth="4.5"/>
+            <circle cx="170" cy="112" r="9.5" fill="#D4A800"/>
+            <circle cx="170" cy="112" r="5" fill="#D4A800"/>
+            <circle cx="170" cy="112" r="3.5" fill="#F0F0F0"/>
+            <rect x="22" y="118" width="146" height="16" fill="#F0F0F0"/>
+            <rect x="24" y="120" width="142" height="4" fill="#E8E8E8"/>
+            <rect x="32" y="110" width="52" height="10" rx="5" fill="#D4A800"/>
+            <rect x="32" y="110" width="10" height="32" rx="5" fill="#D4A800"/>
+            <rect x="74" y="110" width="10" height="32" rx="5" fill="#D4A800"/>
+          </svg>
           <div>
             <div style={{ fontSize: "20px", fontWeight: "900", color: "#0A0A0A", letterSpacing: "-0.5px" }}>
               {f.fromName || "StaplerLabs"}
@@ -302,13 +345,21 @@ function InvoiceDoc({ f, innerRef }: { f: FormData; innerRef?: React.RefObject<H
       <div style={{ margin: "0 48px", height: "1px", background: "#ECECEC" }} />
       <div style={{ padding: "14px 48px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <div style={{ width: "18px", height: "18px", background: "#F5C842", borderRadius: "4px", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <svg width="12" height="9" viewBox="0 0 12 9" fill="none">
-              <rect y="3.5" width="12" height="2" rx="1" fill="#0A0A0A" />
-              <rect y="0" width="8" height="2" rx="1" fill="#0A0A0A" />
-              <rect y="7" width="10" height="2" rx="1" fill="#0A0A0A" />
-            </svg>
-          </div>
+          <svg width="18" height="18" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+            <rect width="200" height="200" fill="#F0F0F0" rx="40"/>
+            <rect x="22" y="134" width="156" height="30" rx="9" fill="#333333"/>
+            <rect x="22" y="134" width="156" height="4" rx="9" fill="#444444" opacity="0.9"/>
+            <path d="M 22 134 L 22 88 Q 22 72 38 68 L 140 62 Q 160 60 168 76 L 174 96 L 174 134 Z" fill="#555555"/>
+            <path d="M 22 88 Q 22 72 38 68 L 140 62 Q 160 60 168 76 L 168 90 L 22 90 Z" fill="#444444"/>
+            <circle cx="170" cy="112" r="20" fill="#F0F0F0"/>
+            <circle cx="170" cy="112" r="20" fill="none" stroke="#C8A800" strokeWidth="4.5"/>
+            <circle cx="170" cy="112" r="9.5" fill="#D4A800"/>
+            <circle cx="170" cy="112" r="3.5" fill="#F0F0F0"/>
+            <rect x="22" y="118" width="146" height="16" fill="#F0F0F0"/>
+            <rect x="32" y="110" width="52" height="10" rx="5" fill="#D4A800"/>
+            <rect x="32" y="110" width="10" height="32" rx="5" fill="#D4A800"/>
+            <rect x="74" y="110" width="10" height="32" rx="5" fill="#D4A800"/>
+          </svg>
           <span style={{ fontSize: "10px", color: "#aaa", fontWeight: "600" }}>{f.fromName}</span>
           <span style={{ fontSize: "10px", color: "#ddd" }}>·</span>
           <span style={{ fontSize: "10px", color: "#bbb" }}>{f.fromEmail}</span>
