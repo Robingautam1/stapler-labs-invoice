@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef } from "react";
 import Link from "next/link";
+import QRCode from "react-qr-code";
 
 /* ─────────────────────────────────────────────
    TYPES
@@ -38,52 +39,29 @@ interface FormData {
   gstRate: string;
   notes: string;
   payment: string;
+  showQR: boolean;
+  upiId: string;
 }
 
 /* ─────────────────────────────────────────────
    HELPERS
 ───────────────────────────────────────────── */
-function uid() {
-  return Math.random().toString(36).slice(2, 9);
-}
-
+function uid() { return Math.random().toString(36).slice(2, 9); }
 function formatINR(n: number) {
-  return (
-    "₹" +
-    n.toLocaleString("en-IN", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })
-  );
+  return "₹" + n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
-
-function today() {
-  return new Date().toISOString().split("T")[0];
-}
-
+function todayStr() { return new Date().toISOString().split("T")[0]; }
 function dueIn30() {
-  const d = new Date();
-  d.setDate(d.getDate() + 30);
+  const d = new Date(); d.setDate(d.getDate() + 30);
   return d.toISOString().split("T")[0];
 }
-
 function fmtDate(str: string) {
   if (!str) return "—";
   const d = new Date(str + "T00:00:00");
-  return d.toLocaleDateString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
+  return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 }
+function newItem(): LineItem { return { id: uid(), description: "", qty: "1", rate: "" }; }
 
-function newItem(): LineItem {
-  return { id: uid(), description: "", qty: "1", rate: "" };
-}
-
-/* ─────────────────────────────────────────────
-   DEFAULT STATE
-───────────────────────────────────────────── */
 const defaults: FormData = {
   mode: "invoice",
   fromName: "StaplerLabs",
@@ -94,7 +72,7 @@ const defaults: FormData = {
   clientEmail: "",
   clientAddress: "",
   docNumber: "",
-  docDate: today(),
+  docDate: todayStr(),
   dueDate: dueIn30(),
   orderStatus: "confirmed",
   items: [newItem(), newItem()],
@@ -105,246 +83,239 @@ const defaults: FormData = {
   gstRate: "18",
   notes: "",
   payment: "",
+  showQR: true,
+  upiId: "gautam.robin333-8@okaxis",
 };
 
 /* ─────────────────────────────────────────────
-   INVOICE PREVIEW COMPONENT (captured by html2canvas)
+   STAPLER LABS LOGO (inline SVG)
 ───────────────────────────────────────────── */
-function InvoicePreview({
-  f,
-  previewRef,
-}: {
-  f: FormData;
-  previewRef: React.RefObject<HTMLDivElement | null>;
-}) {
-  const subtotal = f.items.reduce((s, item) => {
-    return s + (parseFloat(item.qty) || 0) * (parseFloat(item.rate) || 0);
-  }, 0);
+function SlLogo({ size = 32 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none">
+      <rect width="32" height="32" rx="7" fill="#F5C842" />
+      <rect x="7" y="14" width="18" height="4" rx="1.5" fill="#0A0A0A" />
+      <rect x="7" y="8" width="12" height="4" rx="1.5" fill="#0A0A0A" />
+      <rect x="7" y="20" width="15" height="4" rx="1.5" fill="#0A0A0A" />
+    </svg>
+  );
+}
 
-  let discountAmount = 0;
-  if (f.discountEnabled && f.discountValue) {
-    if (f.discountType === "percent") {
-      discountAmount = subtotal * (parseFloat(f.discountValue) / 100);
-    } else {
-      discountAmount = parseFloat(f.discountValue) || 0;
-    }
-  }
-
-  const afterDiscount = subtotal - discountAmount;
-  const gstAmt = f.gstEnabled
-    ? afterDiscount * ((parseFloat(f.gstRate) || 0) / 100)
+/* ─────────────────────────────────────────────
+   INVOICE DOCUMENT (rendered into hidden div for PDF capture)
+───────────────────────────────────────────── */
+function InvoiceDoc({ f, innerRef }: { f: FormData; innerRef?: React.RefObject<HTMLDivElement | null> }) {
+  const subtotal = f.items.reduce((s, it) => s + (parseFloat(it.qty) || 0) * (parseFloat(it.rate) || 0), 0);
+  const discountAmt = f.discountEnabled && f.discountValue
+    ? f.discountType === "percent"
+      ? subtotal * (parseFloat(f.discountValue) / 100)
+      : parseFloat(f.discountValue) || 0
     : 0;
+  const afterDiscount = subtotal - discountAmt;
+  const gstAmt = f.gstEnabled ? afterDiscount * ((parseFloat(f.gstRate) || 0) / 100) : 0;
   const grand = afterDiscount + gstAmt;
-
   const isOrder = f.mode === "order";
+  const upiString = `upi://pay?pa=${f.upiId}&pn=${encodeURIComponent(f.fromName)}&cu=INR`;
 
   return (
     <div
-      ref={previewRef}
+      ref={innerRef}
       style={{
         width: "794px",
-        minHeight: "1123px",
         background: "#ffffff",
         fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif",
         color: "#1a1a1a",
         fontSize: "13px",
         lineHeight: "1.5",
-        position: "relative",
         boxSizing: "border-box",
       }}
     >
-      {/* Yellow top bar */}
-      <div style={{ height: "10px", background: "#F5C842" }} />
+      {/* ── Yellow accent top ── */}
+      <div style={{ height: "6px", background: "linear-gradient(90deg, #F5C842, #FFD966)" }} />
 
-      {/* Main content */}
-      <div style={{ padding: "40px 48px" }}>
-
-        {/* Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "28px" }}>
+      {/* ── Header ── */}
+      <div style={{ padding: "36px 48px 24px", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          {/* Logo mark */}
+          <div style={{ width: "42px", height: "42px", background: "#F5C842", borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <svg width="26" height="20" viewBox="0 0 26 20" fill="none">
+              <rect y="8" width="26" height="4" rx="2" fill="#0A0A0A" />
+              <rect y="0" width="18" height="4" rx="2" fill="#0A0A0A" />
+              <rect y="16" width="21" height="4" rx="2" fill="#0A0A0A" />
+            </svg>
+          </div>
           <div>
-            <div style={{ fontSize: "24px", fontWeight: "900", color: "#0A0A0A", letterSpacing: "-0.5px" }}>
+            <div style={{ fontSize: "20px", fontWeight: "900", color: "#0A0A0A", letterSpacing: "-0.5px" }}>
               {f.fromName || "StaplerLabs"}
             </div>
-            <div style={{ fontSize: "11px", color: "#888", marginTop: "3px" }}>
-              {[f.fromEmail, f.fromPhone, f.fromGST ? `GST: ${f.fromGST}` : ""]
-                .filter(Boolean)
-                .join("  ·  ")}
+            <div style={{ fontSize: "11px", color: "#999", marginTop: "1px" }}>
+              {[f.fromEmail, f.fromPhone].filter(Boolean).join("  ·  ")}
+              {f.fromGST && <span style={{ marginLeft: "6px", color: "#bbb" }}>GST: {f.fromGST}</span>}
             </div>
-            {isOrder && (
-              <div style={{ marginTop: "10px" }}>
-                <span
-                  style={{
-                    display: "inline-block",
-                    padding: "4px 14px",
-                    borderRadius: "100px",
-                    fontSize: "11px",
-                    fontWeight: "700",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.06em",
-                    background: f.orderStatus === "confirmed" ? "#E8F5E9" : "#FFF9E6",
-                    color: f.orderStatus === "confirmed" ? "#2E7D32" : "#A67C00",
-                  }}
-                >
-                  {f.orderStatus === "confirmed" ? "✓ Confirmed" : "⏳ Pending"}
-                </span>
-              </div>
-            )}
-          </div>
-          <div
-            style={{
-              background: "#0A0A0A",
-              color: "#F5C842",
-              fontSize: "11px",
-              fontWeight: "800",
-              padding: "7px 18px",
-              borderRadius: "5px",
-              textTransform: "uppercase",
-              letterSpacing: "0.1em",
-            }}
-          >
-            {isOrder ? "Order Confirmation" : "Invoice"}
           </div>
         </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{
+            display: "inline-block",
+            background: "#0A0A0A",
+            color: "#F5C842",
+            fontSize: "10px",
+            fontWeight: "800",
+            padding: "6px 16px",
+            borderRadius: "4px",
+            textTransform: "uppercase",
+            letterSpacing: "0.12em",
+          }}>
+            {isOrder ? "Order Confirmation" : "Invoice"}
+          </div>
+          {isOrder && (
+            <div style={{ marginTop: "8px" }}>
+              <span style={{
+                display: "inline-block",
+                padding: "3px 12px",
+                borderRadius: "100px",
+                fontSize: "10px",
+                fontWeight: "700",
+                background: f.orderStatus === "confirmed" ? "#E8F5E9" : "#FFF9E6",
+                color: f.orderStatus === "confirmed" ? "#2E7D32" : "#A67C00",
+              }}>
+                {f.orderStatus === "confirmed" ? "✓ Confirmed" : "⏳ Pending"}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
 
-        {/* Yellow divider */}
-        <div style={{ height: "3px", background: "#F5C842", borderRadius: "2px", marginBottom: "28px" }} />
+      {/* ── Yellow divider ── */}
+      <div style={{ margin: "0 48px", height: "2px", background: "#F5C842", borderRadius: "2px" }} />
 
-        {/* Meta row */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "24px", marginBottom: "28px" }}>
+      {/* ── Meta + Client row ── */}
+      <div style={{ padding: "24px 48px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px" }}>
+        {/* Left: doc meta */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "16px" }}>
           {[
             { label: isOrder ? "Order No." : "Invoice No.", value: f.docNumber || (isOrder ? "ORD-001" : "INV-001"), large: true },
             { label: isOrder ? "Order Date" : "Invoice Date", value: fmtDate(f.docDate) },
             { label: isOrder ? "Est. Delivery" : "Due Date", value: fmtDate(f.dueDate) },
           ].map((m, i) => (
             <div key={i}>
-              <div style={{ fontSize: "9px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.1em", color: "#999", marginBottom: "4px" }}>
-                {m.label}
-              </div>
-              <div style={{ fontSize: m.large ? "18px" : "13px", fontWeight: m.large ? "800" : "500", color: "#0A0A0A" }}>
-                {m.value}
-              </div>
+              <div style={{ fontSize: "8px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.1em", color: "#aaa", marginBottom: "3px" }}>{m.label}</div>
+              <div style={{ fontSize: m.large ? "15px" : "12px", fontWeight: m.large ? "800" : "600", color: "#0A0A0A" }}>{m.value}</div>
             </div>
           ))}
         </div>
-
-        {/* Client block */}
-        <div style={{ background: "#F8F8F8", borderRadius: "8px", padding: "16px 20px", marginBottom: "28px" }}>
-          <div style={{ fontSize: "9px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.1em", color: "#999", marginBottom: "6px" }}>
+        {/* Right: client */}
+        <div style={{ background: "#F8F8F8", borderRadius: "10px", padding: "14px 18px" }}>
+          <div style={{ fontSize: "8px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.1em", color: "#aaa", marginBottom: "6px" }}>
             {isOrder ? "Order For" : "Billed To"}
           </div>
-          <div style={{ fontSize: "16px", fontWeight: "800", color: "#0A0A0A", marginBottom: "2px" }}>
-            {f.clientName || "—"}
-          </div>
-          {f.clientEmail && <div style={{ fontSize: "12px", color: "#666" }}>{f.clientEmail}</div>}
-          {f.clientAddress && <div style={{ fontSize: "12px", color: "#666" }}>{f.clientAddress}</div>}
+          <div style={{ fontSize: "15px", fontWeight: "800", color: "#0A0A0A" }}>{f.clientName || "—"}</div>
+          {f.clientEmail && <div style={{ fontSize: "11px", color: "#777", marginTop: "2px" }}>{f.clientEmail}</div>}
+          {f.clientAddress && <div style={{ fontSize: "11px", color: "#777" }}>{f.clientAddress}</div>}
         </div>
+      </div>
 
-        {/* Items table */}
-        <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "20px" }}>
+      {/* ── Items table ── */}
+      <div style={{ padding: "0 48px" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
-            <tr style={{ background: "#0A0A0A" }}>
-              {["Description", "Qty", "Rate", "Amount"].map((h, i) => (
-                <th
-                  key={i}
-                  style={{
-                    padding: "10px 14px",
-                    textAlign: i === 0 ? "left" : "right",
-                    fontSize: "9px",
-                    fontWeight: "700",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.1em",
-                    color: "#F5C842",
-                  }}
-                >
-                  {h}
-                </th>
-              ))}
+            <tr>
+              <th style={{ background: "#0A0A0A", padding: "10px 14px", textAlign: "left", fontSize: "8px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.12em", color: "#F5C842", borderRadius: "6px 0 0 0" }}>Description</th>
+              <th style={{ background: "#0A0A0A", padding: "10px 14px", textAlign: "center", fontSize: "8px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.12em", color: "#F5C842", width: "60px" }}>Qty</th>
+              <th style={{ background: "#0A0A0A", padding: "10px 14px", textAlign: "right", fontSize: "8px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.12em", color: "#F5C842", width: "100px" }}>Rate</th>
+              <th style={{ background: "#0A0A0A", padding: "10px 14px", textAlign: "right", fontSize: "8px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.12em", color: "#F5C842", width: "100px", borderRadius: "0 6px 0 0" }}>Amount</th>
             </tr>
           </thead>
           <tbody>
             {f.items.map((item, idx) => {
               const amount = (parseFloat(item.qty) || 0) * (parseFloat(item.rate) || 0);
               return (
-                <tr key={item.id} style={{ background: idx % 2 === 1 ? "#FAFAFA" : "#fff", borderBottom: "1px solid #F0F0F0" }}>
-                  <td style={{ padding: "11px 14px", fontSize: "13px", color: "#333" }}>
-                    {item.description || <span style={{ color: "#ccc" }}>—</span>}
+                <tr key={item.id} style={{ background: idx % 2 === 0 ? "#ffffff" : "#FAFAFA" }}>
+                  <td style={{ padding: "11px 14px", fontSize: "12px", color: "#333", borderBottom: "1px solid #F0F0F0" }}>
+                    {item.description || "—"}
                   </td>
-                  <td style={{ padding: "11px 14px", fontSize: "13px", textAlign: "right", color: "#555" }}>
-                    {item.qty || 0}
-                  </td>
-                  <td style={{ padding: "11px 14px", fontSize: "13px", textAlign: "right", color: "#555" }}>
-                    {item.rate ? formatINR(parseFloat(item.rate)) : "₹0.00"}
-                  </td>
-                  <td style={{ padding: "11px 14px", fontSize: "13px", textAlign: "right", fontWeight: "700", color: "#0A0A0A" }}>
-                    {formatINR(amount)}
-                  </td>
+                  <td style={{ padding: "11px 14px", fontSize: "12px", color: "#555", textAlign: "center", borderBottom: "1px solid #F0F0F0" }}>{item.qty || 0}</td>
+                  <td style={{ padding: "11px 14px", fontSize: "12px", color: "#555", textAlign: "right", borderBottom: "1px solid #F0F0F0" }}>{formatINR(parseFloat(item.rate) || 0)}</td>
+                  <td style={{ padding: "11px 14px", fontSize: "12px", fontWeight: "700", color: "#0A0A0A", textAlign: "right", borderBottom: "1px solid #F0F0F0" }}>{formatINR(amount)}</td>
                 </tr>
               );
             })}
           </tbody>
         </table>
+      </div>
 
-        {/* Totals */}
-        <div style={{ display: "flex", justifyContent: "flex-end" }}>
-          <div style={{ width: "260px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", fontSize: "13px", color: "#666" }}>
-              <span>Subtotal</span><span>{formatINR(subtotal)}</span>
+      {/* ── Totals ── */}
+      <div style={{ padding: "16px 48px 0", display: "flex", justifyContent: "flex-end" }}>
+        <div style={{ width: "240px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: "12px", color: "#777" }}>
+            <span>Subtotal</span><span>{formatINR(subtotal)}</span>
+          </div>
+          {f.discountEnabled && discountAmt > 0 && (
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: "12px", color: "#E53935" }}>
+              <span>Discount {f.discountType === "percent" ? `(${f.discountValue}%)` : ""}</span>
+              <span>– {formatINR(discountAmt)}</span>
             </div>
-            {f.discountEnabled && discountAmount > 0 && (
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", fontSize: "13px", color: "#666" }}>
-                <span>Discount {f.discountType === "percent" ? `(${f.discountValue}%)` : ""}</span>
-                <span style={{ color: "#E53935" }}>– {formatINR(discountAmount)}</span>
-              </div>
-            )}
-            {f.gstEnabled && parseFloat(f.gstRate) > 0 && (
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", fontSize: "13px", color: "#666" }}>
-                <span>GST ({f.gstRate}%)</span><span>{formatINR(gstAmt)}</span>
-              </div>
-            )}
-            <div style={{ borderTop: "2px solid #0A0A0A", marginTop: "8px", paddingTop: "10px", display: "flex", justifyContent: "space-between", fontSize: "18px", fontWeight: "800", color: "#0A0A0A" }}>
-              <span>Total</span>
-              <span style={{ color: "#F5C842" }}>{formatINR(grand)}</span>
+          )}
+          {f.gstEnabled && parseFloat(f.gstRate) > 0 && (
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: "12px", color: "#777" }}>
+              <span>GST ({f.gstRate}%)</span><span>{formatINR(gstAmt)}</span>
             </div>
+          )}
+          <div style={{ borderTop: "2px solid #0A0A0A", marginTop: "8px", paddingTop: "10px", display: "flex", justifyContent: "space-between", fontSize: "16px", fontWeight: "900", color: "#0A0A0A" }}>
+            <span>Total</span>
+            <span style={{ color: "#D4A800" }}>{formatINR(grand)}</span>
           </div>
         </div>
+      </div>
 
-        {/* Notes */}
-        {f.notes && (
-          <div style={{ marginTop: "32px", paddingTop: "20px", borderTop: "1px solid #ECECEC" }}>
-            <div style={{ fontSize: "9px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.1em", color: "#999", marginBottom: "6px" }}>Notes</div>
-            <div style={{ fontSize: "12px", color: "#555", whiteSpace: "pre-line" }}>{f.notes}</div>
-          </div>
-        )}
+      {/* ── Notes + QR row ── */}
+      <div style={{ padding: "24px 48px", display: "grid", gridTemplateColumns: f.showQR ? "1fr auto" : "1fr", gap: "24px", alignItems: "start" }}>
+        <div>
+          {f.notes && (
+            <div style={{ marginBottom: "16px" }}>
+              <div style={{ fontSize: "8px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.12em", color: "#aaa", marginBottom: "6px" }}>Notes</div>
+              <div style={{ fontSize: "12px", color: "#555", lineHeight: "1.6", whiteSpace: "pre-line" }}>{f.notes}</div>
+            </div>
+          )}
+          {f.payment && (
+            <div style={{ background: "#FFFBEB", borderRadius: "8px", borderLeft: "4px solid #F5C842", padding: "14px 16px" }}>
+              <div style={{ fontSize: "8px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.12em", color: "#aaa", marginBottom: "6px" }}>Payment Details</div>
+              <div style={{ fontSize: "12px", color: "#333", whiteSpace: "pre-line" }}>{f.payment}</div>
+            </div>
+          )}
+        </div>
 
-        {/* Payment */}
-        {f.payment && (
-          <div style={{ marginTop: "16px", padding: "16px 18px", background: "#FFF9E6", borderRadius: "6px", borderLeft: "4px solid #F5C842" }}>
-            <div style={{ fontSize: "9px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.1em", color: "#888", marginBottom: "6px" }}>Payment Details</div>
-            <div style={{ fontSize: "12px", color: "#333", whiteSpace: "pre-line" }}>{f.payment}</div>
+        {/* QR Code */}
+        {f.showQR && f.upiId && (
+          <div style={{ textAlign: "center", padding: "16px", background: "#F8F8F8", borderRadius: "12px", minWidth: "130px" }}>
+            <div style={{ fontSize: "8px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.1em", color: "#aaa", marginBottom: "10px" }}>Scan to Pay</div>
+            <div style={{ display: "inline-block", background: "white", padding: "8px", borderRadius: "8px" }}>
+              <QRCode value={upiString} size={96} />
+            </div>
+            <div style={{ fontSize: "10px", color: "#888", marginTop: "8px", fontWeight: "600" }}>UPI</div>
+            <div style={{ fontSize: "9px", color: "#aaa", marginTop: "2px", wordBreak: "break-all", maxWidth: "120px" }}>{f.upiId}</div>
           </div>
         )}
       </div>
 
-      {/* Footer */}
-      <div
-        style={{
-          position: "absolute",
-          bottom: "0",
-          left: "0",
-          right: "0",
-          background: "#0A0A0A",
-          padding: "14px 48px",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-        }}
-      >
-        <span style={{ fontSize: "10px", color: "#888" }}>
-          {f.fromName} · {f.fromEmail}
-        </span>
-        <span style={{ fontSize: "10px", color: "#555" }}>staplerlabs.com</span>
+      {/* ── Footer ── */}
+      <div style={{ margin: "0 48px", height: "1px", background: "#ECECEC" }} />
+      <div style={{ padding: "14px 48px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <div style={{ width: "18px", height: "18px", background: "#F5C842", borderRadius: "4px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <svg width="12" height="9" viewBox="0 0 12 9" fill="none">
+              <rect y="3.5" width="12" height="2" rx="1" fill="#0A0A0A" />
+              <rect y="0" width="8" height="2" rx="1" fill="#0A0A0A" />
+              <rect y="7" width="10" height="2" rx="1" fill="#0A0A0A" />
+            </svg>
+          </div>
+          <span style={{ fontSize: "10px", color: "#aaa", fontWeight: "600" }}>{f.fromName}</span>
+          <span style={{ fontSize: "10px", color: "#ddd" }}>·</span>
+          <span style={{ fontSize: "10px", color: "#bbb" }}>{f.fromEmail}</span>
+        </div>
+        <span style={{ fontSize: "10px", color: "#ccc" }}>staplerlabs.com</span>
       </div>
-      <div style={{ height: "6px", background: "#F5C842" }} />
+      <div style={{ height: "5px", background: "linear-gradient(90deg, #F5C842, #FFD966)" }} />
     </div>
   );
 }
@@ -355,419 +326,305 @@ function InvoicePreview({
 export default function InvoicePage() {
   const [f, setF] = useState<FormData>(defaults);
   const [generating, setGenerating] = useState(false);
-  const previewRef = useRef<HTMLDivElement>(null);
+  const captureRef = useRef<HTMLDivElement>(null);
 
-  /* ── field helpers ── */
-  const set = useCallback(<K extends keyof FormData>(key: K, val: FormData[K]) => {
-    setF((prev) => ({ ...prev, [key]: val }));
-  }, []);
+  const set = <K extends keyof FormData>(key: K, val: FormData[K]) =>
+    setF((p) => ({ ...p, [key]: val }));
 
-  const setItem = useCallback((id: string, key: keyof LineItem, val: string) => {
-    setF((prev) => ({
-      ...prev,
-      items: prev.items.map((it) => (it.id === id ? { ...it, [key]: val } : it)),
-    }));
-  }, []);
+  const setItem = (id: string, key: keyof LineItem, val: string) =>
+    setF((p) => ({ ...p, items: p.items.map((it) => (it.id === id ? { ...it, [key]: val } : it)) }));
 
   const addItem = () => setF((p) => ({ ...p, items: [...p.items, newItem()] }));
   const removeItem = (id: string) =>
     setF((p) => ({ ...p, items: p.items.length > 1 ? p.items.filter((it) => it.id !== id) : p.items }));
 
-  /* ── computed totals ── */
-  const subtotal = f.items.reduce(
-    (s, it) => s + (parseFloat(it.qty) || 0) * (parseFloat(it.rate) || 0),
-    0
-  );
-  const discountAmount =
-    f.discountEnabled && f.discountValue
-      ? f.discountType === "percent"
-        ? subtotal * (parseFloat(f.discountValue) / 100)
-        : parseFloat(f.discountValue) || 0
-      : 0;
-  const afterDiscount = subtotal - discountAmount;
+  /* ── Computed totals ── */
+  const subtotal = f.items.reduce((s, it) => s + (parseFloat(it.qty) || 0) * (parseFloat(it.rate) || 0), 0);
+  const discountAmt = f.discountEnabled && f.discountValue
+    ? f.discountType === "percent" ? subtotal * (parseFloat(f.discountValue) / 100) : parseFloat(f.discountValue) || 0
+    : 0;
+  const afterDiscount = subtotal - discountAmt;
   const gstAmt = f.gstEnabled ? afterDiscount * ((parseFloat(f.gstRate) || 0) / 100) : 0;
   const grand = afterDiscount + gstAmt;
 
-  /* ── PDF generation ── */
+  /* ── PDF: capture the hidden full-size div ── */
   const handleDownload = async () => {
-    if (!previewRef.current || generating) return;
+    if (!captureRef.current || generating) return;
     setGenerating(true);
     try {
-      const [html2canvasModule, jsPDFModule] = await Promise.all([
-        import("html2canvas"),
-        import("jspdf"),
+      const [h2c, jsPDFmod] = await Promise.all([
+        import("html2canvas").then((m) => m.default),
+        import("jspdf").then((m) => m.jsPDF),
       ]);
-      const html2canvas = html2canvasModule.default;
-      const { jsPDF } = jsPDFModule;
 
-      const canvas = await html2canvas(previewRef.current, {
+      const el = captureRef.current;
+      const canvas = await h2c(el, {
         scale: 2,
         useCORS: true,
+        allowTaint: false,
         backgroundColor: "#ffffff",
         logging: false,
+        width: el.scrollWidth,
+        height: el.scrollHeight,
         windowWidth: 794,
+        windowHeight: el.scrollHeight,
       });
 
       const imgData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF({ unit: "px", format: "a4", orientation: "portrait" });
+      const pdf = new jsPDFmod({ unit: "px", format: "a4", orientation: "portrait" });
       const pdfW = pdf.internal.pageSize.getWidth();
       const pdfH = pdf.internal.pageSize.getHeight();
-      const imgH = (canvas.height / canvas.width) * pdfW;
+      const ratio = canvas.height / canvas.width;
+      const imgH = pdfW * ratio;
 
       if (imgH <= pdfH) {
         pdf.addImage(imgData, "PNG", 0, 0, pdfW, imgH);
       } else {
-        // Multi-page: slice canvas into A4-height chunks
-        const pageHeightPx = (pdfH / pdfW) * canvas.width;
+        // Paginate
+        const pagePixelH = (pdfH / pdfW) * canvas.width;
         let offsetY = 0;
         let first = true;
         while (offsetY < canvas.height) {
-          const sliceH = Math.min(pageHeightPx, canvas.height - offsetY);
-          const pageCanvas = document.createElement("canvas");
-          pageCanvas.width = canvas.width;
-          pageCanvas.height = sliceH;
-          const ctx = pageCanvas.getContext("2d")!;
+          const sliceH = Math.min(pagePixelH, canvas.height - offsetY);
+          const pg = document.createElement("canvas");
+          pg.width = canvas.width;
+          pg.height = sliceH;
+          const ctx = pg.getContext("2d")!;
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, pg.width, pg.height);
           ctx.drawImage(canvas, 0, -offsetY);
           if (!first) pdf.addPage();
-          pdf.addImage(pageCanvas.toDataURL("image/png"), "PNG", 0, 0, pdfW, (sliceH / canvas.width) * pdfW);
-          offsetY += pageHeightPx;
+          pdf.addImage(pg.toDataURL("image/png"), "PNG", 0, 0, pdfW, (sliceH / canvas.width) * pdfW);
+          offsetY += pagePixelH;
           first = false;
         }
       }
 
-      const isOrder = f.mode === "order";
-      const docNum = f.docNumber || (isOrder ? "ORD-001" : "INV-001");
+      const docNum = f.docNumber || (f.mode === "order" ? "ORD-001" : "INV-001");
       const clientSlug = (f.clientName || "Client").replace(/[^a-z0-9]/gi, "_");
-      pdf.save(`${isOrder ? "Order" : "Invoice"}-${docNum}-${clientSlug}.pdf`);
+      pdf.save(`${f.mode === "order" ? "Order" : "Invoice"}-${docNum}-${clientSlug}.pdf`);
     } catch (err) {
-      console.error("PDF generation failed:", err);
+      console.error(err);
       alert("PDF generation failed. Please try again.");
     } finally {
       setGenerating(false);
     }
   };
 
-  /* ── shared input class ── */
-  const inp =
-    "w-full bg-white/5 border border-white/10 rounded-lg text-white text-sm px-3 py-2.5 outline-none focus:border-yellow-400 transition-colors placeholder:text-white/20";
+  const inp = "w-full bg-white/5 border border-white/10 rounded-lg text-white text-sm px-3 py-2.5 outline-none focus:border-yellow-400 transition-colors placeholder:text-white/20";
   const lbl = "block text-[10px] font-bold uppercase tracking-widest text-white/40 mb-1.5";
+  const toggle = (on: boolean) => (
+    <div className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors cursor-pointer ${on ? "bg-yellow-400" : "bg-white/15"}`}>
+      <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform shadow ${on ? "translate-x-[18px]" : "translate-x-0.5"}`} />
+    </div>
+  );
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A] text-white">
-      {/* Top nav */}
-      <div className="border-b border-white/10 px-6 py-4 flex items-center justify-between">
+    <div className="min-h-screen bg-[#0A0A0A] text-white flex flex-col">
+
+      {/* ── Hidden capture target (off-screen, no transform) ── */}
+      <div
+        style={{
+          position: "fixed",
+          left: "-9999px",
+          top: "0",
+          zIndex: -1,
+          pointerEvents: "none",
+          visibility: "hidden",
+        }}
+      >
+        <InvoiceDoc f={f} innerRef={captureRef} />
+      </div>
+
+      {/* ── Top nav ── */}
+      <div className="flex-shrink-0 border-b border-white/8 px-6 py-3.5 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Link href="/" className="flex items-center gap-2 text-white/50 hover:text-white transition-colors text-sm">
-            ← Back
-          </Link>
-          <span className="text-white/20">|</span>
+          <Link href="/" className="text-white/40 hover:text-white transition-colors text-sm">← Back</Link>
+          <span className="text-white/15">|</span>
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 bg-yellow-400 rounded-md flex items-center justify-center text-black text-xs font-black">SL</div>
-            <span className="font-bold text-sm">Invoice Generator</span>
+            <SlLogo size={28} />
+            <span className="font-black text-sm tracking-tight">StaplerLabs</span>
+            <span className="text-white/30 text-sm font-normal">Invoice Generator</span>
           </div>
         </div>
-        {/* Mode toggle */}
-        <div className="flex items-center gap-1 bg-white/5 border border-white/10 rounded-lg p-1">
+        <div className="flex items-center gap-1 bg-white/5 border border-white/8 rounded-lg p-1">
           {(["invoice", "order"] as DocMode[]).map((m) => (
-            <button
-              key={m}
-              onClick={() => set("mode", m)}
-              className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-all ${
-                f.mode === m ? "bg-yellow-400 text-black" : "text-white/50 hover:text-white"
-              }`}
-            >
-              {m === "invoice" ? "📄 Invoice" : "📦 Order Confirmation"}
+            <button key={m} onClick={() => set("mode", m)}
+              className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-all ${f.mode === m ? "bg-yellow-400 text-black" : "text-white/40 hover:text-white"}`}>
+              {m === "invoice" ? "📄 Invoice" : "📦 Order"}
             </button>
           ))}
         </div>
       </div>
 
-      <div className="flex gap-0 h-[calc(100vh-57px)]">
-        {/* ── FORM PANEL ── */}
-        <div className="w-[420px] flex-shrink-0 overflow-y-auto border-r border-white/10 p-5 space-y-4">
+      {/* ── Main layout ── */}
+      <div className="flex flex-1 overflow-hidden">
+
+        {/* ── FORM ── */}
+        <div className="w-[400px] flex-shrink-0 overflow-y-auto border-r border-white/8 p-5 space-y-5">
 
           {/* Your Details */}
-          <section>
-            <h3 className="text-[10px] font-bold uppercase tracking-widest text-white/30 mb-3">Your Details</h3>
-            <div className="space-y-3">
+          <div>
+            <p className={lbl}>Your Details</p>
+            <div className="space-y-2">
               <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className={lbl}>Business Name</label>
-                  <input className={inp} value={f.fromName} onChange={(e) => set("fromName", e.target.value)} />
-                </div>
-                <div>
-                  <label className={lbl}>Email</label>
-                  <input className={inp} value={f.fromEmail} onChange={(e) => set("fromEmail", e.target.value)} />
-                </div>
+                <div><label className={lbl}>Name</label><input className={inp} value={f.fromName} onChange={(e) => set("fromName", e.target.value)} /></div>
+                <div><label className={lbl}>Email</label><input className={inp} value={f.fromEmail} onChange={(e) => set("fromEmail", e.target.value)} /></div>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className={lbl}>Phone</label>
-                  <input className={inp} value={f.fromPhone} onChange={(e) => set("fromPhone", e.target.value)} />
-                </div>
-                <div>
-                  <label className={lbl}>GST / PAN</label>
-                  <input className={inp} placeholder="Optional" value={f.fromGST} onChange={(e) => set("fromGST", e.target.value)} />
-                </div>
+                <div><label className={lbl}>Phone</label><input className={inp} value={f.fromPhone} onChange={(e) => set("fromPhone", e.target.value)} /></div>
+                <div><label className={lbl}>GST / PAN</label><input className={inp} placeholder="Optional" value={f.fromGST} onChange={(e) => set("fromGST", e.target.value)} /></div>
               </div>
             </div>
-          </section>
+          </div>
 
-          <div className="border-t border-white/8" />
+          <div className="h-px bg-white/8" />
 
           {/* Client */}
-          <section>
-            <h3 className="text-[10px] font-bold uppercase tracking-widest text-white/30 mb-3">Client Details</h3>
-            <div className="space-y-3">
+          <div>
+            <p className={lbl}>Client Details</p>
+            <div className="space-y-2">
               <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className={lbl}>Client Name</label>
-                  <input className={inp} placeholder="e.g. Apex Dental Care" value={f.clientName} onChange={(e) => set("clientName", e.target.value)} />
-                </div>
-                <div>
-                  <label className={lbl}>Client Email</label>
-                  <input className={inp} placeholder="Optional" value={f.clientEmail} onChange={(e) => set("clientEmail", e.target.value)} />
-                </div>
+                <div><label className={lbl}>Client Name</label><input className={inp} placeholder="e.g. Apex Dental Care" value={f.clientName} onChange={(e) => set("clientName", e.target.value)} /></div>
+                <div><label className={lbl}>Email</label><input className={inp} placeholder="Optional" value={f.clientEmail} onChange={(e) => set("clientEmail", e.target.value)} /></div>
               </div>
-              <div>
-                <label className={lbl}>Address / City</label>
-                <input className={inp} placeholder="e.g. Model Town, Rohtak" value={f.clientAddress} onChange={(e) => set("clientAddress", e.target.value)} />
-              </div>
+              <div><label className={lbl}>Address</label><input className={inp} placeholder="e.g. Model Town, Rohtak" value={f.clientAddress} onChange={(e) => set("clientAddress", e.target.value)} /></div>
             </div>
-          </section>
+          </div>
 
-          <div className="border-t border-white/8" />
+          <div className="h-px bg-white/8" />
 
-          {/* Doc details */}
-          <section>
-            <h3 className="text-[10px] font-bold uppercase tracking-widest text-white/30 mb-3">
-              {f.mode === "invoice" ? "Invoice Details" : "Order Details"}
-            </h3>
-            <div className="space-y-3">
+          {/* Doc meta */}
+          <div>
+            <p className={lbl}>{f.mode === "invoice" ? "Invoice Details" : "Order Details"}</p>
+            <div className="space-y-2">
               <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className={lbl}>{f.mode === "invoice" ? "Invoice No." : "Order No."}</label>
-                  <input className={inp} placeholder={f.mode === "invoice" ? "INV-001" : "ORD-001"} value={f.docNumber} onChange={(e) => set("docNumber", e.target.value)} />
-                </div>
-                <div>
-                  <label className={lbl}>{f.mode === "invoice" ? "Invoice Date" : "Order Date"}</label>
-                  <input type="date" className={inp} value={f.docDate} onChange={(e) => set("docDate", e.target.value)} />
-                </div>
+                <div><label className={lbl}>{f.mode === "invoice" ? "Invoice No." : "Order No."}</label>
+                  <input className={inp} placeholder={f.mode === "invoice" ? "INV-001" : "ORD-001"} value={f.docNumber} onChange={(e) => set("docNumber", e.target.value)} /></div>
+                <div><label className={lbl}>Date</label><input type="date" className={inp} value={f.docDate} onChange={(e) => set("docDate", e.target.value)} /></div>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className={lbl}>{f.mode === "invoice" ? "Due Date" : "Est. Delivery"}</label>
-                  <input type="date" className={inp} value={f.dueDate} onChange={(e) => set("dueDate", e.target.value)} />
-                </div>
+                <div><label className={lbl}>{f.mode === "invoice" ? "Due Date" : "Est. Delivery"}</label>
+                  <input type="date" className={inp} value={f.dueDate} onChange={(e) => set("dueDate", e.target.value)} /></div>
                 {f.mode === "order" && (
-                  <div>
-                    <label className={lbl}>Order Status</label>
+                  <div><label className={lbl}>Status</label>
                     <select className={inp} value={f.orderStatus} onChange={(e) => set("orderStatus", e.target.value as OrderStatus)}>
                       <option value="confirmed">Confirmed</option>
                       <option value="pending">Pending</option>
-                    </select>
-                  </div>
+                    </select></div>
                 )}
               </div>
             </div>
-          </section>
+          </div>
 
-          <div className="border-t border-white/8" />
+          <div className="h-px bg-white/8" />
 
-          {/* Line Items */}
-          <section>
-            <h3 className="text-[10px] font-bold uppercase tracking-widest text-white/30 mb-3">Line Items</h3>
-
-            {/* Header */}
-            <div className="grid grid-cols-[1fr_56px_80px_28px] gap-1.5 mb-1 px-1">
-              {["Description", "Qty", "Rate (₹)", ""].map((h, i) => (
-                <span key={i} className="text-[9px] font-bold uppercase tracking-widest text-white/20">
-                  {h}
-                </span>
+          {/* Line items */}
+          <div>
+            <p className={lbl}>Line Items</p>
+            <div className="grid grid-cols-[1fr_52px_76px_26px] gap-1.5 mb-1 px-0.5">
+              {["Description", "Qty", "Rate ₹", ""].map((h, i) => (
+                <span key={i} className="text-[9px] font-bold uppercase tracking-widest text-white/20">{h}</span>
               ))}
             </div>
-
             <div className="space-y-1.5">
               {f.items.map((item) => (
-                <div key={item.id} className="grid grid-cols-[1fr_56px_80px_28px] gap-1.5 items-center">
-                  <input
-                    className={inp}
-                    placeholder="e.g. Website Development"
-                    value={item.description}
-                    onChange={(e) => setItem(item.id, "description", e.target.value)}
-                  />
-                  <input
-                    className={inp + " text-right"}
-                    type="number"
-                    min="0"
-                    value={item.qty}
-                    onChange={(e) => setItem(item.id, "qty", e.target.value)}
-                  />
-                  <input
-                    className={inp + " text-right"}
-                    type="number"
-                    min="0"
-                    placeholder="0"
-                    value={item.rate}
-                    onChange={(e) => setItem(item.id, "rate", e.target.value)}
-                  />
-                  <button
-                    onClick={() => removeItem(item.id)}
-                    className="w-7 h-7 rounded-md border border-white/10 text-white/30 hover:border-red-400 hover:text-red-400 transition-colors text-base flex items-center justify-center"
-                  >
-                    ×
-                  </button>
+                <div key={item.id} className="grid grid-cols-[1fr_52px_76px_26px] gap-1.5 items-center">
+                  <input className={inp} placeholder="Item description" value={item.description} onChange={(e) => setItem(item.id, "description", e.target.value)} />
+                  <input className={inp + " text-right"} type="number" min="0" value={item.qty} onChange={(e) => setItem(item.id, "qty", e.target.value)} />
+                  <input className={inp + " text-right"} type="number" min="0" placeholder="0" value={item.rate} onChange={(e) => setItem(item.id, "rate", e.target.value)} />
+                  <button onClick={() => removeItem(item.id)} className="h-9 w-6 flex items-center justify-center rounded text-white/20 hover:text-red-400 transition-colors text-lg">×</button>
                 </div>
               ))}
             </div>
-
-            <button
-              onClick={addItem}
-              className="mt-2 w-full py-2 border border-dashed border-white/15 rounded-lg text-sm text-white/40 hover:border-yellow-400 hover:text-yellow-400 transition-colors"
-            >
+            <button onClick={addItem} className="mt-2 w-full py-2 border border-dashed border-white/10 rounded-lg text-xs text-white/30 hover:border-yellow-400 hover:text-yellow-400 transition-colors">
               + Add Item
             </button>
-          </section>
+          </div>
 
-          <div className="border-t border-white/8" />
+          <div className="h-px bg-white/8" />
 
           {/* Discount */}
-          <section>
+          <div>
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-[10px] font-bold uppercase tracking-widest text-white/30">Discount</h3>
-              <button
-                onClick={() => set("discountEnabled", !f.discountEnabled)}
-                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                  f.discountEnabled ? "bg-yellow-400" : "bg-white/15"
-                }`}
-              >
-                <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${f.discountEnabled ? "translate-x-4.5" : "translate-x-0.5"}`} />
-              </button>
+              <p className={lbl + " mb-0"}>Discount</p>
+              <div onClick={() => set("discountEnabled", !f.discountEnabled)}>{toggle(f.discountEnabled)}</div>
             </div>
             {f.discountEnabled && (
               <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className={lbl}>Type</label>
+                <div><label className={lbl}>Type</label>
                   <select className={inp} value={f.discountType} onChange={(e) => set("discountType", e.target.value as DiscountType)}>
                     <option value="percent">Percentage (%)</option>
                     <option value="fixed">Fixed Amount (₹)</option>
-                  </select>
-                </div>
-                <div>
-                  <label className={lbl}>{f.discountType === "percent" ? "Discount %" : "Amount (₹)"}</label>
-                  <input
-                    className={inp}
-                    type="number"
-                    min="0"
-                    placeholder={f.discountType === "percent" ? "e.g. 10" : "e.g. 500"}
-                    value={f.discountValue}
-                    onChange={(e) => set("discountValue", e.target.value)}
-                  />
-                </div>
+                  </select></div>
+                <div><label className={lbl}>{f.discountType === "percent" ? "Percent %" : "Amount ₹"}</label>
+                  <input className={inp} type="number" min="0" placeholder={f.discountType === "percent" ? "10" : "500"} value={f.discountValue} onChange={(e) => set("discountValue", e.target.value)} /></div>
               </div>
             )}
-          </section>
+          </div>
 
           {/* GST */}
-          <section>
+          <div>
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-[10px] font-bold uppercase tracking-widest text-white/30">GST</h3>
-              <button
-                onClick={() => set("gstEnabled", !f.gstEnabled)}
-                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                  f.gstEnabled ? "bg-yellow-400" : "bg-white/15"
-                }`}
-              >
-                <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${f.gstEnabled ? "translate-x-4.5" : "translate-x-0.5"}`} />
-              </button>
+              <p className={lbl + " mb-0"}>GST</p>
+              <div onClick={() => set("gstEnabled", !f.gstEnabled)}>{toggle(f.gstEnabled)}</div>
             </div>
             {f.gstEnabled && (
-              <div>
-                <label className={lbl}>GST Rate (%)</label>
-                <input
-                  className={inp}
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={f.gstRate}
-                  onChange={(e) => set("gstRate", e.target.value)}
-                />
-              </div>
+              <div><label className={lbl}>Rate (%)</label>
+                <input className={inp} type="number" min="0" max="100" value={f.gstRate} onChange={(e) => set("gstRate", e.target.value)} /></div>
             )}
-          </section>
+          </div>
 
-          <div className="border-t border-white/8" />
+          <div className="h-px bg-white/8" />
 
-          {/* Totals summary */}
-          <div className="bg-white/3 rounded-xl p-4 space-y-1.5 text-sm">
-            <div className="flex justify-between text-white/50">
-              <span>Subtotal</span><span>{formatINR(subtotal)}</span>
-            </div>
-            {f.discountEnabled && discountAmount > 0 && (
-              <div className="flex justify-between text-red-400">
-                <span>Discount {f.discountType === "percent" ? `(${f.discountValue}%)` : ""}</span>
-                <span>– {formatINR(discountAmount)}</span>
-              </div>
-            )}
-            {f.gstEnabled && parseFloat(f.gstRate) > 0 && (
-              <div className="flex justify-between text-white/50">
-                <span>GST ({f.gstRate}%)</span><span>{formatINR(gstAmt)}</span>
-              </div>
-            )}
-            <div className="flex justify-between font-bold text-base text-yellow-400 pt-2 border-t border-white/10">
+          {/* Totals */}
+          <div className="bg-white/3 rounded-xl p-4 text-sm space-y-1.5">
+            <div className="flex justify-between text-white/40"><span>Subtotal</span><span>{formatINR(subtotal)}</span></div>
+            {f.discountEnabled && discountAmt > 0 && <div className="flex justify-between text-red-400"><span>Discount</span><span>– {formatINR(discountAmt)}</span></div>}
+            {f.gstEnabled && parseFloat(f.gstRate) > 0 && <div className="flex justify-between text-white/40"><span>GST ({f.gstRate}%)</span><span>{formatINR(gstAmt)}</span></div>}
+            <div className="flex justify-between font-black text-base text-yellow-400 pt-2 border-t border-white/10">
               <span>Total</span><span>{formatINR(grand)}</span>
             </div>
           </div>
 
-          <div className="border-t border-white/8" />
+          <div className="h-px bg-white/8" />
 
           {/* Notes & Payment */}
-          <section>
-            <h3 className="text-[10px] font-bold uppercase tracking-widest text-white/30 mb-3">Notes & Payment</h3>
-            <div className="space-y-3">
-              <div>
-                <label className={lbl}>Notes / Thank you message</label>
-                <textarea
-                  className={inp + " min-h-[70px] resize-y"}
-                  placeholder="e.g. Thank you for choosing StaplerLabs!"
-                  value={f.notes}
-                  onChange={(e) => set("notes", e.target.value)}
-                />
-              </div>
-              <div>
-                <label className={lbl}>Payment Details (Bank / UPI)</label>
-                <textarea
-                  className={inp + " min-h-[70px] resize-y"}
-                  placeholder={"UPI: staplerlabs@upi\nBank: HDFC | A/C: 1234567890"}
-                  value={f.payment}
-                  onChange={(e) => set("payment", e.target.value)}
-                />
-              </div>
+          <div className="space-y-3">
+            <p className={lbl}>Notes & Payment</p>
+            <div><label className={lbl}>Notes</label>
+              <textarea className={inp + " min-h-[60px] resize-y"} placeholder="Thank you for choosing StaplerLabs!" value={f.notes} onChange={(e) => set("notes", e.target.value)} /></div>
+            <div><label className={lbl}>Payment Details</label>
+              <textarea className={inp + " min-h-[60px] resize-y"} placeholder={"UPI: gautam.robin333-8@okaxis"} value={f.payment} onChange={(e) => set("payment", e.target.value)} /></div>
+          </div>
+
+          <div className="h-px bg-white/8" />
+
+          {/* QR toggle */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <p className={lbl + " mb-0"}>UPI QR Code on Invoice</p>
+              <div onClick={() => set("showQR", !f.showQR)}>{toggle(f.showQR)}</div>
             </div>
-          </section>
+            {f.showQR && (
+              <div><label className={lbl}>UPI ID</label>
+                <input className={inp} value={f.upiId} onChange={(e) => set("upiId", e.target.value)} placeholder="yourname@upi" /></div>
+            )}
+          </div>
 
-          {/* Download button */}
-          <button
-            onClick={handleDownload}
-            disabled={generating}
-            className="w-full py-3.5 bg-yellow-400 hover:bg-yellow-300 disabled:opacity-60 disabled:cursor-wait text-black font-black text-sm rounded-xl transition-all hover:-translate-y-0.5 active:translate-y-0"
-          >
-            {generating ? "Generating PDF…" : "⬇ Download PDF"}
+          {/* Download */}
+          <button onClick={handleDownload} disabled={generating}
+            className="w-full py-3.5 bg-yellow-400 hover:bg-yellow-300 disabled:opacity-60 disabled:cursor-wait text-black font-black text-sm rounded-xl transition-all hover:-translate-y-0.5 active:translate-y-0">
+            {generating ? "⏳ Generating PDF…" : "⬇ Download PDF"}
           </button>
-
           <div className="h-4" />
         </div>
 
-        {/* ── PREVIEW PANEL ── */}
-        <div className="flex-1 overflow-auto bg-[#111] flex items-start justify-center p-8">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-white/20 mb-4 text-center">Live Preview</p>
-            <div
-              className="shadow-2xl"
-              style={{ transform: "scale(0.85)", transformOrigin: "top center", marginBottom: "-150px" }}
-            >
-              <InvoicePreview f={f} previewRef={previewRef} />
-            </div>
+        {/* ── LIVE PREVIEW ── */}
+        <div className="flex-1 overflow-auto bg-[#111] p-8 flex flex-col items-center">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-white/20 mb-5">Live Preview</p>
+          <div style={{ transform: "scale(0.72)", transformOrigin: "top center", marginBottom: "-230px" }}>
+            <InvoiceDoc f={f} />
           </div>
         </div>
       </div>
