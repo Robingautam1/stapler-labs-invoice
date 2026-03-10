@@ -427,8 +427,7 @@ export default function InvoicePage() {
     if (!captureRef.current || generating) return;
     setGenerating(true);
     try {
-      // ── Step 1: Pre-generate QR data URL so onclone can inject it synchronously ──
-      // We generate it fresh here (not from state) to guarantee it's ready before h2c runs.
+      // ── Step 1: Generate QR data URL (completely independent of html2canvas) ──
       let freshQrDataUrl = "";
       if (f.showQR && f.upiId) {
         const QRmod = await import("qrcode");
@@ -441,6 +440,7 @@ export default function InvoicePage() {
         });
       }
 
+      // ── Step 2: Capture invoice HTML as canvas (QR will be blank — that's OK) ──
       const [h2c, jsPDFmod] = await Promise.all([
         import("html2canvas").then((m) => m.default),
         import("jspdf").then((m) => m.jsPDF),
@@ -457,24 +457,9 @@ export default function InvoicePage() {
         height: el.scrollHeight,
         windowWidth: 794,
         windowHeight: el.scrollHeight,
-        // ── onclone: called with h2c's internal DOM clone before rendering ──
-        // This is the only guaranteed way to have dynamic content present when h2c renders.
-        // Mutating the real DOM before h2c is unreliable; onclone is the correct hook.
-        onclone: async (_clonedDoc: Document, clonedEl: HTMLElement) => {
-          const img = clonedEl.querySelector("[data-qr]") as HTMLImageElement | null;
-          if (img && freshQrDataUrl) {
-            img.src = freshQrDataUrl;
-            // Wait for the data-URL image to fully decode in the cloned DOM
-            await new Promise<void>((resolve) => {
-              if (img.complete && img.naturalWidth > 0) { resolve(); return; }
-              img.onload = () => resolve();
-              img.onerror = () => resolve();
-              setTimeout(resolve, 3000);
-            });
-          }
-        },
       });
 
+      // ── Step 3: Build PDF pages ──
       const imgData = canvas.toDataURL("image/png");
       const pdf = new jsPDFmod({ unit: "px", format: "a4", orientation: "portrait" });
       const pdfW = pdf.internal.pageSize.getWidth();
@@ -485,7 +470,6 @@ export default function InvoicePage() {
       if (imgH <= pdfH) {
         pdf.addImage(imgData, "PNG", 0, 0, pdfW, imgH);
       } else {
-        // Paginate
         const pagePixelH = (pdfH / pdfW) * canvas.width;
         let offsetY = 0;
         let first = true;
@@ -502,6 +486,35 @@ export default function InvoicePage() {
           pdf.addImage(pg.toDataURL("image/png"), "PNG", 0, 0, pdfW, (sliceH / canvas.width) * pdfW);
           offsetY += pagePixelH;
           first = false;
+        }
+      }
+
+      // ── Step 4: Overlay QR code directly via jsPDF (bypasses html2canvas entirely) ──
+      // html2canvas cannot render <img> inside off-screen containers; jsPDF.addImage can.
+      if (freshQrDataUrl && captureRef.current) {
+        const qrEl = captureRef.current.querySelector("[data-qr]") as HTMLElement | null;
+        if (qrEl) {
+          const captureRect = captureRef.current.getBoundingClientRect();
+          const qrRect = qrEl.getBoundingClientRect();
+
+          // Position relative to the capture container (both off-screen, but relative offset is correct)
+          const relX = qrRect.left - captureRect.left;
+          const relY = qrRect.top - captureRect.top;
+          const relW = qrRect.width;
+          const relH = qrRect.height;
+
+          // Scale from capture-div pixels (794px wide) to PDF points
+          const scale = pdfW / captureRect.width;
+
+          // Determine which page the QR falls on (for multi-page invoices)
+          const pageHeightInPx = pdfH / scale;
+          const pageIndex = Math.floor(relY / pageHeightInPx);
+          const yOnPage = (relY - pageIndex * pageHeightInPx) * scale;
+
+          const totalPages = pdf.getNumberOfPages();
+          const targetPage = Math.min(pageIndex + 1, totalPages);
+          pdf.setPage(targetPage);
+          pdf.addImage(freshQrDataUrl, "PNG", relX * scale, yOnPage, relW * scale, relH * scale);
         }
       }
 
