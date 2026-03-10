@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 
 /* ─────────────────────────────────────────────
@@ -132,7 +132,11 @@ function SlLogo({ size = 32 }: { size?: number }) {
 /* ─────────────────────────────────────────────
    INVOICE DOCUMENT (rendered into hidden div for PDF capture)
 ───────────────────────────────────────────── */
-function InvoiceDoc({ f, innerRef }: { f: FormData; innerRef?: React.RefObject<HTMLDivElement | null> }) {
+function InvoiceDoc({ f, innerRef, qrDataUrl }: {
+  f: FormData;
+  innerRef?: React.RefObject<HTMLDivElement | null>;
+  qrDataUrl?: string; // for visible preview; capture div gets it injected via onclone
+}) {
   const subtotal = f.items.reduce((s, it) => s + (parseFloat(it.qty) || 0) * (parseFloat(it.rate) || 0), 0);
   const discountAmt = f.discountEnabled && f.discountValue
     ? f.discountType === "percent"
@@ -143,7 +147,6 @@ function InvoiceDoc({ f, innerRef }: { f: FormData; innerRef?: React.RefObject<H
   const gstAmt = f.gstEnabled ? afterDiscount * ((parseFloat(f.gstRate) || 0) / 100) : 0;
   const grand = afterDiscount + gstAmt;
   const isOrder = f.mode === "order";
-  // QR is populated imperatively in handleDownload via data-qr attribute selector — no useEffect needed
 
   return (
     <div
@@ -327,13 +330,23 @@ function InvoiceDoc({ f, innerRef }: { f: FormData; innerRef?: React.RefObject<H
           )}
         </div>
 
-        {/* QR Code — src is injected by handleDownload before html2canvas capture; data-qr is the selector */}
+        {/* QR Code:
+            - Visible preview: qrDataUrl prop is set → img src is the data URL
+            - Capture div: qrDataUrl prop is undefined → img has no src (blank placeholder)
+              html2canvas onclone callback injects the QR data URL into the clone before rendering */}
         {f.showQR && f.upiId && (
           <div style={{ textAlign: "center", padding: "16px", background: "#F8F8F8", borderRadius: "12px", minWidth: "130px" }}>
             <div style={{ fontSize: "8px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.1em", color: "#aaa", marginBottom: "10px" }}>Scan to Pay</div>
             <div style={{ display: "inline-block", background: "white", padding: "8px", borderRadius: "8px" }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img data-qr="true" src="" alt="UPI QR" width={96} height={96} style={{ display: "block", width: "96px", height: "96px" }} />
+              <img
+                data-qr="true"
+                src={qrDataUrl || undefined}
+                alt="UPI QR"
+                width={96}
+                height={96}
+                style={{ display: "block", width: "96px", height: "96px", background: qrDataUrl ? "none" : "#F0F0F0" }}
+              />
             </div>
             <div style={{ fontSize: "10px", color: "#888", marginTop: "8px", fontWeight: "600" }}>UPI</div>
             <div style={{ fontSize: "9px", color: "#aaa", marginTop: "2px", wordBreak: "break-all", maxWidth: "120px" }}>{f.upiId}</div>
@@ -379,6 +392,17 @@ export default function InvoicePage() {
   const [generating, setGenerating] = useState(false);
   const captureRef = useRef<HTMLDivElement>(null);
 
+  /* ── QR data URL for visible preview ── */
+  const [qrDataUrl, setQrDataUrl] = useState<string>("");
+  useEffect(() => {
+    if (!f.showQR || !f.upiId) { setQrDataUrl(""); return; }
+    const upiString = `upi://pay?pa=${encodeURIComponent(f.upiId)}&pn=${encodeURIComponent(f.fromName)}&cu=INR`;
+    import("qrcode").then((mod) => {
+      const QR = (mod.default ?? mod) as { toDataURL: (t: string, o: object) => Promise<string> };
+      QR.toDataURL(upiString, { width: 200, margin: 2 }).then(setQrDataUrl).catch(console.error);
+    });
+  }, [f.showQR, f.upiId, f.fromName]);
+
   const set = <K extends keyof FormData>(key: K, val: FormData[K]) =>
     setF((p) => ({ ...p, [key]: val }));
 
@@ -403,28 +427,18 @@ export default function InvoicePage() {
     if (!captureRef.current || generating) return;
     setGenerating(true);
     try {
-      // ── Step 1: Inject QR code into the capture div BEFORE html2canvas runs ──
-      // We do this imperatively (not via state) so we can await completion with certainty.
+      // ── Step 1: Pre-generate QR data URL so onclone can inject it synchronously ──
+      // We generate it fresh here (not from state) to guarantee it's ready before h2c runs.
+      let freshQrDataUrl = "";
       if (f.showQR && f.upiId) {
-        const qrImg = captureRef.current.querySelector("[data-qr]") as HTMLImageElement | null;
-        if (qrImg) {
-          const QRmod = await import("qrcode");
-          const QR = (QRmod.default ?? QRmod) as {
-            toDataURL: (text: string, opts: object) => Promise<string>;
-          };
-          const upiString = `upi://pay?pa=${encodeURIComponent(f.upiId)}&pn=${encodeURIComponent(f.fromName)}&cu=INR`;
-          const dataUrl = await QR.toDataURL(upiString, {
-            width: 200, margin: 2, color: { dark: "#000000", light: "#ffffff" },
-          });
-          // Set src and wait for the browser to paint the image
-          await new Promise<void>((resolve) => {
-            qrImg.onload = () => resolve();
-            qrImg.onerror = () => resolve(); // resolve even on error so PDF still downloads
-            qrImg.src = dataUrl;
-            // Fallback: if onload doesn't fire within 1s (e.g. data URL already cached), resolve anyway
-            setTimeout(resolve, 1000);
-          });
-        }
+        const QRmod = await import("qrcode");
+        const QR = (QRmod.default ?? QRmod) as {
+          toDataURL: (text: string, opts: object) => Promise<string>;
+        };
+        const upiString = `upi://pay?pa=${encodeURIComponent(f.upiId)}&pn=${encodeURIComponent(f.fromName)}&cu=INR`;
+        freshQrDataUrl = await QR.toDataURL(upiString, {
+          width: 200, margin: 2, color: { dark: "#000000", light: "#ffffff" },
+        });
       }
 
       const [h2c, jsPDFmod] = await Promise.all([
@@ -443,6 +457,15 @@ export default function InvoicePage() {
         height: el.scrollHeight,
         windowWidth: 794,
         windowHeight: el.scrollHeight,
+        // ── onclone: called with h2c's internal DOM clone before rendering ──
+        // This is the only guaranteed way to have dynamic content present when h2c renders.
+        // Mutating the real DOM before h2c is unreliable; onclone is the correct hook.
+        onclone: (_clonedDoc: Document, clonedEl: HTMLElement) => {
+          if (freshQrDataUrl) {
+            const img = clonedEl.querySelector("[data-qr]") as HTMLImageElement | null;
+            if (img) img.src = freshQrDataUrl;
+          }
+        },
       });
 
       const imgData = canvas.toDataURL("image/png");
@@ -701,7 +724,7 @@ export default function InvoicePage() {
         <div className="flex-1 overflow-auto bg-[#111] p-8 flex flex-col items-center">
           <p className="text-[10px] font-bold uppercase tracking-widest text-white/20 mb-5">Live Preview</p>
           <div style={{ transform: "scale(0.72)", transformOrigin: "top center", marginBottom: "-230px" }}>
-            <InvoiceDoc f={f} />
+            <InvoiceDoc f={f} qrDataUrl={qrDataUrl} />
           </div>
         </div>
       </div>
