@@ -133,7 +133,7 @@ function SlLogo({ size = 32 }: { size?: number }) {
 /* ─────────────────────────────────────────────
    INVOICE DOCUMENT (rendered into hidden div for PDF capture)
 ───────────────────────────────────────────── */
-function InvoiceDoc({ f, innerRef, qrDataUrl }: { f: FormData; innerRef?: React.RefObject<HTMLDivElement | null>; qrDataUrl?: string }) {
+function InvoiceDoc({ f, innerRef }: { f: FormData; innerRef?: React.RefObject<HTMLDivElement | null> }) {
   const subtotal = f.items.reduce((s, it) => s + (parseFloat(it.qty) || 0) * (parseFloat(it.rate) || 0), 0);
   const discountAmt = f.discountEnabled && f.discountValue
     ? f.discountType === "percent"
@@ -144,6 +144,23 @@ function InvoiceDoc({ f, innerRef, qrDataUrl }: { f: FormData; innerRef?: React.
   const gstAmt = f.gstEnabled ? afterDiscount * ((parseFloat(f.gstRate) || 0) / 100) : 0;
   const grand = afterDiscount + gstAmt;
   const isOrder = f.mode === "order";
+
+  /* ── QR: draw directly to <canvas> — html2canvas reads canvas pixel data natively ── */
+  const qrCanvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    if (!f.showQR || !f.upiId || !qrCanvasRef.current) return;
+    const upiString = `upi://pay?pa=${encodeURIComponent(f.upiId)}&pn=${encodeURIComponent(f.fromName)}&cu=INR`;
+    import("qrcode").then((mod) => {
+      const QR = (mod.default ?? mod) as {
+        toCanvas: (canvas: HTMLCanvasElement, text: string, opts: object) => Promise<void>;
+      };
+      QR.toCanvas(qrCanvasRef.current!, upiString, {
+        width: 96,
+        margin: 2,
+        color: { dark: "#000000", light: "#ffffff" },
+      }).catch(console.error);
+    });
+  }, [f.showQR, f.upiId, f.fromName]);
 
   return (
     <div
@@ -327,13 +344,12 @@ function InvoiceDoc({ f, innerRef, qrDataUrl }: { f: FormData; innerRef?: React.
           )}
         </div>
 
-        {/* QR Code — rendered as <img> so html2canvas captures it correctly */}
-        {f.showQR && f.upiId && qrDataUrl && (
+        {/* QR Code — <canvas> drawn by qrcode.toCanvas(); html2canvas reads canvas pixels natively */}
+        {f.showQR && f.upiId && (
           <div style={{ textAlign: "center", padding: "16px", background: "#F8F8F8", borderRadius: "12px", minWidth: "130px" }}>
             <div style={{ fontSize: "8px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.1em", color: "#aaa", marginBottom: "10px" }}>Scan to Pay</div>
             <div style={{ display: "inline-block", background: "white", padding: "8px", borderRadius: "8px" }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={qrDataUrl} width={96} height={96} alt="UPI QR Code" style={{ display: "block" }} />
+              <canvas ref={qrCanvasRef} width={96} height={96} style={{ display: "block", width: "96px", height: "96px" }} />
             </div>
             <div style={{ fontSize: "10px", color: "#888", marginTop: "8px", fontWeight: "600" }}>UPI</div>
             <div style={{ fontSize: "9px", color: "#aaa", marginTop: "2px", wordBreak: "break-all", maxWidth: "120px" }}>{f.upiId}</div>
@@ -377,21 +393,7 @@ function InvoiceDoc({ f, innerRef, qrDataUrl }: { f: FormData; innerRef?: React.
 export default function InvoicePage() {
   const [f, setF] = useState<FormData>(defaults);
   const [generating, setGenerating] = useState(false);
-  const [qrDataUrl, setQrDataUrl] = useState<string>("");
   const captureRef = useRef<HTMLDivElement>(null);
-
-  /* ── Generate QR as PNG data URL (works with html2canvas, unlike SVG) ── */
-  useEffect(() => {
-    if (!f.showQR || !f.upiId) { setQrDataUrl(""); return; }
-    const upiString = `upi://pay?pa=${encodeURIComponent(f.upiId)}&pn=${encodeURIComponent(f.fromName)}&cu=INR`;
-    import("qrcode").then((mod) => {
-      const QRCode = mod.default ?? mod;
-      (QRCode as { toDataURL: (text: string, opts: object) => Promise<string> })
-        .toDataURL(upiString, { width: 200, margin: 2, color: { dark: "#000000", light: "#ffffff" } })
-        .then((url: string) => setQrDataUrl(url))
-        .catch(console.error);
-    });
-  }, [f.showQR, f.upiId, f.fromName]);
 
   const set = <K extends keyof FormData>(key: K, val: FormData[K]) =>
     setF((p) => ({ ...p, [key]: val }));
@@ -417,6 +419,9 @@ export default function InvoicePage() {
     if (!captureRef.current || generating) return;
     setGenerating(true);
     try {
+      // Wait for QR canvas (drawn by useEffect inside InvoiceDoc) to finish rendering
+      await new Promise((r) => setTimeout(r, 600));
+
       const [h2c, jsPDFmod] = await Promise.all([
         import("html2canvas").then((m) => m.default),
         import("jspdf").then((m) => m.jsPDF),
@@ -500,7 +505,7 @@ export default function InvoicePage() {
           pointerEvents: "none",
         }}
       >
-        <InvoiceDoc f={f} innerRef={captureRef} qrDataUrl={qrDataUrl} />
+        <InvoiceDoc f={f} innerRef={captureRef} />
       </div>
 
       {/* ── Top nav ── */}
@@ -691,7 +696,7 @@ export default function InvoicePage() {
         <div className="flex-1 overflow-auto bg-[#111] p-8 flex flex-col items-center">
           <p className="text-[10px] font-bold uppercase tracking-widest text-white/20 mb-5">Live Preview</p>
           <div style={{ transform: "scale(0.72)", transformOrigin: "top center", marginBottom: "-230px" }}>
-            <InvoiceDoc f={f} qrDataUrl={qrDataUrl} />
+            <InvoiceDoc f={f} />
           </div>
         </div>
       </div>
