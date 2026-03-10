@@ -144,7 +144,6 @@ function InvoiceDoc({ f, innerRef, qrDataUrl }: { f: FormData; innerRef?: React.
   const gstAmt = f.gstEnabled ? afterDiscount * ((parseFloat(f.gstRate) || 0) / 100) : 0;
   const grand = afterDiscount + gstAmt;
   const isOrder = f.mode === "order";
-  const upiString = `upi://pay?pa=${f.upiId}&pn=${encodeURIComponent(f.fromName)}&cu=INR`;
 
   return (
     <div
@@ -489,8 +488,9 @@ export default function InvoicePage() {
     <div className="min-h-screen bg-[#0A0A0A] text-white flex flex-col">
 
       {/* ── Hidden capture target (off-screen, no transform) ── */}
-      {/* NOTE: must NOT use visibility:hidden — html2canvas skips hidden elements and produces blank output */}
-      {/* opacity:0 keeps it invisible to users while still being fully rendered/painted for capture */}
+      {/* IMPORTANT: Do NOT use visibility:hidden OR opacity:0 on this wrapper or any ancestor —
+          both prevent html2canvas from rendering content (produces blank white PDF).
+          Simply positioning off-screen with left:-9999px is enough to hide it from users. */}
       <div
         style={{
           position: "fixed",
@@ -498,7 +498,6 @@ export default function InvoicePage() {
           top: "0",
           zIndex: -1,
           pointerEvents: "none",
-          opacity: 0,
         }}
       >
         <InvoiceDoc f={f} innerRef={captureRef} qrDataUrl={qrDataUrl} />
