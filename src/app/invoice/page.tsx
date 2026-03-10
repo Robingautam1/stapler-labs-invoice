@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import Link from "next/link";
-// react-qr-code renders SVG which html2canvas cannot capture — using qrcode (canvas→dataURL) instead
 
 /* ─────────────────────────────────────────────
    TYPES
@@ -144,23 +143,7 @@ function InvoiceDoc({ f, innerRef }: { f: FormData; innerRef?: React.RefObject<H
   const gstAmt = f.gstEnabled ? afterDiscount * ((parseFloat(f.gstRate) || 0) / 100) : 0;
   const grand = afterDiscount + gstAmt;
   const isOrder = f.mode === "order";
-
-  /* ── QR: draw directly to <canvas> — html2canvas reads canvas pixel data natively ── */
-  const qrCanvasRef = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
-    if (!f.showQR || !f.upiId || !qrCanvasRef.current) return;
-    const upiString = `upi://pay?pa=${encodeURIComponent(f.upiId)}&pn=${encodeURIComponent(f.fromName)}&cu=INR`;
-    import("qrcode").then((mod) => {
-      const QR = (mod.default ?? mod) as {
-        toCanvas: (canvas: HTMLCanvasElement, text: string, opts: object) => Promise<void>;
-      };
-      QR.toCanvas(qrCanvasRef.current!, upiString, {
-        width: 96,
-        margin: 2,
-        color: { dark: "#000000", light: "#ffffff" },
-      }).catch(console.error);
-    });
-  }, [f.showQR, f.upiId, f.fromName]);
+  // QR is populated imperatively in handleDownload via data-qr attribute selector — no useEffect needed
 
   return (
     <div
@@ -344,12 +327,13 @@ function InvoiceDoc({ f, innerRef }: { f: FormData; innerRef?: React.RefObject<H
           )}
         </div>
 
-        {/* QR Code — <canvas> drawn by qrcode.toCanvas(); html2canvas reads canvas pixels natively */}
+        {/* QR Code — src is injected by handleDownload before html2canvas capture; data-qr is the selector */}
         {f.showQR && f.upiId && (
           <div style={{ textAlign: "center", padding: "16px", background: "#F8F8F8", borderRadius: "12px", minWidth: "130px" }}>
             <div style={{ fontSize: "8px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.1em", color: "#aaa", marginBottom: "10px" }}>Scan to Pay</div>
             <div style={{ display: "inline-block", background: "white", padding: "8px", borderRadius: "8px" }}>
-              <canvas ref={qrCanvasRef} width={96} height={96} style={{ display: "block", width: "96px", height: "96px" }} />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img data-qr="true" src="" alt="UPI QR" width={96} height={96} style={{ display: "block", width: "96px", height: "96px" }} />
             </div>
             <div style={{ fontSize: "10px", color: "#888", marginTop: "8px", fontWeight: "600" }}>UPI</div>
             <div style={{ fontSize: "9px", color: "#aaa", marginTop: "2px", wordBreak: "break-all", maxWidth: "120px" }}>{f.upiId}</div>
@@ -419,8 +403,29 @@ export default function InvoicePage() {
     if (!captureRef.current || generating) return;
     setGenerating(true);
     try {
-      // Wait for QR canvas (drawn by useEffect inside InvoiceDoc) to finish rendering
-      await new Promise((r) => setTimeout(r, 600));
+      // ── Step 1: Inject QR code into the capture div BEFORE html2canvas runs ──
+      // We do this imperatively (not via state) so we can await completion with certainty.
+      if (f.showQR && f.upiId) {
+        const qrImg = captureRef.current.querySelector("[data-qr]") as HTMLImageElement | null;
+        if (qrImg) {
+          const QRmod = await import("qrcode");
+          const QR = (QRmod.default ?? QRmod) as {
+            toDataURL: (text: string, opts: object) => Promise<string>;
+          };
+          const upiString = `upi://pay?pa=${encodeURIComponent(f.upiId)}&pn=${encodeURIComponent(f.fromName)}&cu=INR`;
+          const dataUrl = await QR.toDataURL(upiString, {
+            width: 200, margin: 2, color: { dark: "#000000", light: "#ffffff" },
+          });
+          // Set src and wait for the browser to paint the image
+          await new Promise<void>((resolve) => {
+            qrImg.onload = () => resolve();
+            qrImg.onerror = () => resolve(); // resolve even on error so PDF still downloads
+            qrImg.src = dataUrl;
+            // Fallback: if onload doesn't fire within 1s (e.g. data URL already cached), resolve anyway
+            setTimeout(resolve, 1000);
+          });
+        }
+      }
 
       const [h2c, jsPDFmod] = await Promise.all([
         import("html2canvas").then((m) => m.default),
