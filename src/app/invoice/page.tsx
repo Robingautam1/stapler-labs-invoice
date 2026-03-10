@@ -460,10 +460,17 @@ export default function InvoicePage() {
         // ── onclone: called with h2c's internal DOM clone before rendering ──
         // This is the only guaranteed way to have dynamic content present when h2c renders.
         // Mutating the real DOM before h2c is unreliable; onclone is the correct hook.
-        onclone: (_clonedDoc: Document, clonedEl: HTMLElement) => {
-          if (freshQrDataUrl) {
-            const img = clonedEl.querySelector("[data-qr]") as HTMLImageElement | null;
-            if (img) img.src = freshQrDataUrl;
+        onclone: async (_clonedDoc: Document, clonedEl: HTMLElement) => {
+          const img = clonedEl.querySelector("[data-qr]") as HTMLImageElement | null;
+          if (img && freshQrDataUrl) {
+            img.src = freshQrDataUrl;
+            // Wait for the data-URL image to fully decode in the cloned DOM
+            await new Promise<void>((resolve) => {
+              if (img.complete && img.naturalWidth > 0) { resolve(); return; }
+              img.onload = () => resolve();
+              img.onerror = () => resolve();
+              setTimeout(resolve, 3000);
+            });
           }
         },
       });
@@ -533,7 +540,7 @@ export default function InvoicePage() {
           pointerEvents: "none",
         }}
       >
-        <InvoiceDoc f={f} innerRef={captureRef} />
+        <InvoiceDoc f={f} innerRef={captureRef} qrDataUrl={qrDataUrl} />
       </div>
 
       {/* ── Top nav ── */}
