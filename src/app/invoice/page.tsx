@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
-import QRCode from "react-qr-code";
+// react-qr-code renders SVG which html2canvas cannot capture — using qrcode (canvas→dataURL) instead
 
 /* ─────────────────────────────────────────────
    TYPES
@@ -133,7 +133,7 @@ function SlLogo({ size = 32 }: { size?: number }) {
 /* ─────────────────────────────────────────────
    INVOICE DOCUMENT (rendered into hidden div for PDF capture)
 ───────────────────────────────────────────── */
-function InvoiceDoc({ f, innerRef }: { f: FormData; innerRef?: React.RefObject<HTMLDivElement | null> }) {
+function InvoiceDoc({ f, innerRef, qrDataUrl }: { f: FormData; innerRef?: React.RefObject<HTMLDivElement | null>; qrDataUrl?: string }) {
   const subtotal = f.items.reduce((s, it) => s + (parseFloat(it.qty) || 0) * (parseFloat(it.rate) || 0), 0);
   const discountAmt = f.discountEnabled && f.discountValue
     ? f.discountType === "percent"
@@ -328,12 +328,13 @@ function InvoiceDoc({ f, innerRef }: { f: FormData; innerRef?: React.RefObject<H
           )}
         </div>
 
-        {/* QR Code */}
-        {f.showQR && f.upiId && (
+        {/* QR Code — rendered as <img> so html2canvas captures it correctly */}
+        {f.showQR && f.upiId && qrDataUrl && (
           <div style={{ textAlign: "center", padding: "16px", background: "#F8F8F8", borderRadius: "12px", minWidth: "130px" }}>
             <div style={{ fontSize: "8px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.1em", color: "#aaa", marginBottom: "10px" }}>Scan to Pay</div>
             <div style={{ display: "inline-block", background: "white", padding: "8px", borderRadius: "8px" }}>
-              <QRCode value={upiString} size={96} />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={qrDataUrl} width={96} height={96} alt="UPI QR Code" style={{ display: "block" }} />
             </div>
             <div style={{ fontSize: "10px", color: "#888", marginTop: "8px", fontWeight: "600" }}>UPI</div>
             <div style={{ fontSize: "9px", color: "#aaa", marginTop: "2px", wordBreak: "break-all", maxWidth: "120px" }}>{f.upiId}</div>
@@ -377,7 +378,21 @@ function InvoiceDoc({ f, innerRef }: { f: FormData; innerRef?: React.RefObject<H
 export default function InvoicePage() {
   const [f, setF] = useState<FormData>(defaults);
   const [generating, setGenerating] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState<string>("");
   const captureRef = useRef<HTMLDivElement>(null);
+
+  /* ── Generate QR as PNG data URL (works with html2canvas, unlike SVG) ── */
+  useEffect(() => {
+    if (!f.showQR || !f.upiId) { setQrDataUrl(""); return; }
+    const upiString = `upi://pay?pa=${encodeURIComponent(f.upiId)}&pn=${encodeURIComponent(f.fromName)}&cu=INR`;
+    import("qrcode").then((mod) => {
+      const QRCode = mod.default ?? mod;
+      (QRCode as { toDataURL: (text: string, opts: object) => Promise<string> })
+        .toDataURL(upiString, { width: 200, margin: 2, color: { dark: "#000000", light: "#ffffff" } })
+        .then((url: string) => setQrDataUrl(url))
+        .catch(console.error);
+    });
+  }, [f.showQR, f.upiId, f.fromName]);
 
   const set = <K extends keyof FormData>(key: K, val: FormData[K]) =>
     setF((p) => ({ ...p, [key]: val }));
@@ -486,7 +501,7 @@ export default function InvoicePage() {
           opacity: 0,
         }}
       >
-        <InvoiceDoc f={f} innerRef={captureRef} />
+        <InvoiceDoc f={f} innerRef={captureRef} qrDataUrl={qrDataUrl} />
       </div>
 
       {/* ── Top nav ── */}
@@ -677,7 +692,7 @@ export default function InvoicePage() {
         <div className="flex-1 overflow-auto bg-[#111] p-8 flex flex-col items-center">
           <p className="text-[10px] font-bold uppercase tracking-widest text-white/20 mb-5">Live Preview</p>
           <div style={{ transform: "scale(0.72)", transformOrigin: "top center", marginBottom: "-230px" }}>
-            <InvoiceDoc f={f} />
+            <InvoiceDoc f={f} qrDataUrl={qrDataUrl} />
           </div>
         </div>
       </div>
