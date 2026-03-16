@@ -55,9 +55,12 @@ export async function GET(
     const stats = {
         total_orders: ordersResult.count || 0,
         total_invoices: invoicesResult.count || 0,
-        total_business_value: orders.reduce((sum, o) => sum + Number(o.total_amount), 0),
-        total_paid: invoices.reduce((sum, i) => sum + Number(i.amount_paid), 0),
-        total_outstanding: invoices.reduce((sum, i) => sum + Number(i.amount_due), 0),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        total_business_value: (orders as any[]).reduce((sum: number, o: any) => sum + Number(o.total_amount), 0),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        total_paid: (invoices as any[]).reduce((sum: number, i: any) => sum + Number(i.amount_paid), 0),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        total_outstanding: (invoices as any[]).reduce((sum: number, i: any) => sum + Number(i.amount_due), 0),
     };
 
     return success({ ...client, stats });
